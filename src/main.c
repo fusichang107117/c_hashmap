@@ -4,80 +4,110 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <assert.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <ev.h>
 
 #include "hashmap.h"
 
-#define KEY_MAX_LENGTH (256)
-#define KEY_PREFIX ("somekey")
-#define KEY_COUNT (20)
+#define IPC_SOCK_PATH 	"\0mirror_server_IPCsock"
+#define MAX_IPC_CLIENT_FDS	50
 
-typedef struct data_struct_s
+struct ev_async async;
+
+int ipc_client_count = 0;
+
+static int ipc_server_init(void)
 {
-	char key_string[KEY_MAX_LENGTH];
-	int number;
-} data_struct_t;
+	int fd;
+	struct sockaddr_un addr;
+
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0) {
+		printf("create ipc server error: %d\n", fd);
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	*addr.sun_path = '\0';
+	strncpy(addr.sun_path + 1, IPC_SOCK_PATH + 1, sizeof(addr.sun_path) - 2);
+
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+		printf("bind ipc server error\n");
+		return -1;
+	}
+
+	if (listen(fd, 5) < 0) {
+		printf("listen ipc server error\n");
+		return -1;
+	}
+
+	return fd;
+}
+
+static void ipc_accept_handle(struct ev_loop *loop, struct ev_io *watcher, int revents)
+{
+	int client_fd;
+
+	if (EV_ERROR & revents) {
+		printf("error event in accept\n");
+		return;
+	}
+	if (ipc_client_count >= MAX_IPC_CLIENT_FDS) {
+		printf("too many ipc client to track %d.\n", ipc_client_count);
+		return;
+	}
+
+	client_fd = accept(watcher->fd, NULL, NULL);
+	if (client_fd < 0) {
+		printf("accept error\n");
+		return;
+	}
+
+	struct ev_io *w_client = (struct ev_io *)malloc(sizeof(struct ev_io));
+	if (!w_client) {
+		printf("%s(), %d: malloc error\n", __func__, __LINE__);
+		close(client_fd);
+		return;
+	}
+
+	ipc_client_count++;
+	printf("client %d connected,total %d clients.\n", client_fd, ipc_client_count);
+
+	//ev_io_init(w_client, ipc_recv_handle, client_fd, EV_READ);
+	//ev_io_start(loop, w_client);
+}
+
+void sig_stop_ev(void)
+{
+	ev_async_send(EV_DEFAULT_ &async);
+	ev_break(EV_DEFAULT_ EVBREAK_ALL);
+}
 
 int main(char* argv, int argc)
 {
-	int index;
-	int error;
-	map_t mymap;
-	char key_string[KEY_MAX_LENGTH];
-	data_struct_t* value;
+	struct ev_loop *loop = EV_DEFAULT;
 
-	mymap = hashmap_new();
-
-	/* First, populate the hash map with ascending values */
-	for (index=0; index<KEY_COUNT; index+=1)
-	{
-		/* Store the key string along side the numerical value so we can free it later */
-		value = malloc(sizeof(data_struct_t));
-		snprintf(value->key_string, KEY_MAX_LENGTH, "%s%d", KEY_PREFIX, index);
-		value->number = index;
-
-		printf("PUT: key_string: %s, value: %d\n", value->key_string, value->number );
-		error = hashmap_put(mymap, value->key_string, value);
-		assert(error==MAP_OK);
+	struct ev_io ipc_server;
+	int ipc_serverfd;
+	ipc_serverfd = ipc_server_init();
+	if (ipc_serverfd < 0) {
+		return -1;
 	}
 
-	/* Now, check all of the expected values are there */
-	for (index=0; index<KEY_COUNT; index+=1)
-	{
-		snprintf(key_string, KEY_MAX_LENGTH, "%s%d", KEY_PREFIX, index);
+	ev_io_init(&ipc_server, ipc_accept_handle, ipc_serverfd, EV_READ);
+	ev_io_start(loop, &ipc_server);
 
-		error = hashmap_get(mymap, key_string, (void**)(&value));
+	ev_async_init(&async, sig_stop_ev);
+	ev_async_start(loop, &async);
 
-		printf("GET: key_string: %s, value: %d\n", key_string, value->number );
-		/* Make sure the value was both found and the correct number */
-		assert(error==MAP_OK);
-		assert(value->number==index);
-	}
+	ev_run(loop, 0);
 
-	/* Make sure that a value that wasn't in the map can't be found */
-	snprintf(key_string, KEY_MAX_LENGTH, "%s%d", KEY_PREFIX, KEY_COUNT);
+	ev_default_destroy();
 
-	error = hashmap_get(mymap, key_string, (void**)(&value));
+	if (ipc_serverfd > 0)
+		close(ipc_serverfd);
 
-	/* Make sure the value was not found */
-	assert(error==MAP_MISSING);
-
-	/* Free all of the values we allocated and remove them from the map */
-	for (index=0; index<KEY_COUNT; index+=1)
-	{
-		snprintf(key_string, KEY_MAX_LENGTH, "%s%d", KEY_PREFIX, index);
-
-		error = hashmap_get(mymap, key_string, (void**)(&value));
-		assert(error==MAP_OK);
-
-		error = hashmap_remove(mymap, key_string);
-		assert(error==MAP_OK);
-
-		free(value);
-	}
-
-	/* Now, destroy the map */
-	hashmap_free(mymap);
-
-	return 1;
+	return 0;
 }
