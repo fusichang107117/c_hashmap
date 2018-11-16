@@ -8,10 +8,11 @@
 #include <sys/un.h>
 #include <ev.h>
 
-#include "hashmap.h"
+//#include "hashmap.h"
 
-#define IPC_SOCK_PATH 	"\0mirror_server_IPCsock"
+#define IPC_SOCK_PATH 	"/tmp/mirror_ipc.socket"
 #define MAX_IPC_CLIENT_FDS	50
+#define MAX_BUF_SIZE 1024
 
 struct ev_async async;
 
@@ -22,7 +23,9 @@ static int ipc_server_init(void)
 	int fd;
 	struct sockaddr_un addr;
 
-	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	unlink(IPC_SOCK_PATH);
+
+	fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (fd < 0) {
 		printf("create ipc server error: %d\n", fd);
 		return -1;
@@ -30,20 +33,33 @@ static int ipc_server_init(void)
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	*addr.sun_path = '\0';
-	strncpy(addr.sun_path + 1, IPC_SOCK_PATH + 1, sizeof(addr.sun_path) - 2);
+	strncpy(addr.sun_path, IPC_SOCK_PATH, sizeof(addr.sun_path) - 1);
 
 	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
 		printf("bind ipc server error\n");
 		return -1;
 	}
 
-	if (listen(fd, 5) < 0) {
+	if (listen(fd, MAX_IPC_CLIENT_FDS) < 0) {
 		printf("listen ipc server error\n");
 		return -1;
 	}
 
 	return fd;
+}
+
+static void ipc_recv_handle(struct ev_loop *loop, struct ev_io *watcher, int revents)
+{
+	char buf[MAX_BUF_SIZE] = { 0 };
+
+	int ret = read(watcher->fd, buf, MAX_BUF_SIZE);
+	if (ret <= 0) {
+		perror("read");
+		close(watcher->fd);
+		return;
+	}
+	buf[ret] = '\0';
+	printf("ret:%d, %s\n", ret, buf);
 }
 
 static void ipc_accept_handle(struct ev_loop *loop, struct ev_io *watcher, int revents)
@@ -75,8 +91,8 @@ static void ipc_accept_handle(struct ev_loop *loop, struct ev_io *watcher, int r
 	ipc_client_count++;
 	printf("client %d connected,total %d clients.\n", client_fd, ipc_client_count);
 
-	//ev_io_init(w_client, ipc_recv_handle, client_fd, EV_READ);
-	//ev_io_start(loop, w_client);
+	ev_io_init(w_client, ipc_recv_handle, client_fd, EV_READ);
+	ev_io_start(loop, w_client);
 }
 
 void sig_stop_ev(void)
@@ -85,7 +101,7 @@ void sig_stop_ev(void)
 	ev_break(EV_DEFAULT_ EVBREAK_ALL);
 }
 
-int main(char* argv, int argc)
+int main(int argc, char const *argv[])
 {
 	struct ev_loop *loop = EV_DEFAULT;
 
@@ -108,6 +124,8 @@ int main(char* argv, int argc)
 
 	if (ipc_serverfd > 0)
 		close(ipc_serverfd);
+
+	unlink(IPC_SOCK_PATH);
 
 	return 0;
 }
