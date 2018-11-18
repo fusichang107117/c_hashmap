@@ -8,11 +8,8 @@
 #include <sys/un.h>
 #include <ev.h>
 
+#include "iproxy.h"
 //#include "hashmap.h"
-
-#define IPC_SOCK_PATH 	"/tmp/mirror_ipc.socket"
-#define MAX_IPC_CLIENT_FDS	50
-#define MAX_BUF_SIZE 1024
 
 struct ev_async async;
 
@@ -55,11 +52,46 @@ static void ipc_recv_handle(struct ev_loop *loop, struct ev_io *watcher, int rev
 	int ret = read(watcher->fd, buf, MAX_BUF_SIZE);
 	if (ret <= 0) {
 		perror("read");
+		ev_io_stop(loop, watcher);
 		close(watcher->fd);
+		free(watcher);
+		ipc_client_count--;
 		return;
 	}
 	buf[ret] = '\0';
 	printf("ret:%d, %s\n", ret, buf);
+	int cmd_len = sizeof(iproxy_cmd_t);
+
+	iproxy_cmd_t *cmd = (iproxy_cmd_t *)buf;
+
+	printf("cmdid: %d\n", cmd->id);
+	printf("keylen: %d\n", cmd->key_len);
+	printf("valuelen: %d\n", cmd->value_len);
+
+	char *key = buf + cmd_len;
+	char *value = buf + cmd_len + cmd->key_len;
+
+	printf("key: %s\n", key);
+	printf("value: %s\n", value);
+
+	switch(cmd->id) {
+		case IPROXY_SET:
+		break;
+		case IPROXY_GET:
+			write(watcher->fd,"xyu", 4);
+		break;
+		case IPROXY_REGISTER:
+		break;
+		case IPROXY_REGISTER_AND_GET:
+		break;
+		case IPROXY_UNREGISTER:
+		break;
+		case IPROXY_COMMIT:
+		break;
+		default:
+			printf("error commid ID: %d\n", cmd->id);
+		break;
+	}
 }
 
 static void ipc_accept_handle(struct ev_loop *loop, struct ev_io *watcher, int revents)

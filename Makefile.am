@@ -1,8 +1,12 @@
-bin_PROGRAMS = server ipc_client
+bin_PROGRAMS = iproxyd iproxylib ipc_client
 
-server_SOURCES = src/main.c src/hashmap.c
-server_LDADD =  -lev
-server_CFLAGS = -I./inc -s
+iproxyd_SOURCES = src/iproxyd.c src/hashmap.c
+iproxyd_LDADD =  -lev
+iproxyd_CFLAGS = -I./inc -s
+
+iproxylib_SOURCES = src/iproxylib.c
+#iproxylib_LDADD =  -lev
+iproxylib_CFLAGS = -I./inc -s
 
 
 ipc_client_SOURCES = src/ipc_client.c

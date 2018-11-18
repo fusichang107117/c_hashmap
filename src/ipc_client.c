@@ -6,10 +6,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <ev.h>
-
-#define IPC_SOCK_PATH 	"/tmp/mirror_ipc.socket"
-#define MAX_EVENTS 10
-#define MAX_BUF_SIZE 1024
+#include "iproxy.h"
 
 
 struct ev_async async;

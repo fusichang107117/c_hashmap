@@ -8,3 +8,16 @@ To compile it, run something like this on your system:
 gcc main.c hashmap.c -o hashmaptest
 
 There are no restrictions on how you reuse this code.
+
+
+
+iproxy set key value
+iproxy get key
+iproxy commit
+
+int iproxy_set(char *key, char *value);
+int iproxy_get(char *key, char *value);
+int iproxy_register(char *key);
+int iproxy_register_and_get(char *key, char *value);
+int iproxy_unregister();
+int iproxy_commit();
